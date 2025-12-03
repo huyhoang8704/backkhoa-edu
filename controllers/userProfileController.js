@@ -1,12 +1,19 @@
 const UserProfile = require('../models/UserProfile');
 const User = require('../models/User');
 const slugify = require("slugify");
-const supabase = require('../config/supabase');
+const s3 = require("../config/space");
+const { PutObjectCommand } = require("@aws-sdk/client-s3");
+
+const BUCKET_NAME = "qldapm";
+const CDN_URL = "https://qldapm.sgp1.digitaloceanspaces.com";
 
 
 const getMyProfile = async (req, res) => {
   try {
-    const profile = await UserProfile.findOne({ user: req.user.id }).populate('user', 'name email role');
+    const profile = await UserProfile
+      .findOne({ user: req.user.id })
+      .populate('user', 'name email role');
+
     if (!profile) return res.status(404).json({ message: 'Profile not found' });
 
     res.status(200).json(profile);
@@ -31,31 +38,37 @@ const updateMyProfile = async (req, res) => {
     ];
 
     const updateData = {};
+
     allowedFields.forEach((key) => {
-      if (req.body[key] !== undefined && req.body[key] !== null)
+      if (req.body[key] !== undefined && req.body[key] !== null) {
         updateData[key] = req.body[key];
+      }
     });
 
+    // 📌 Nếu user upload avatar
     if (req.file) {
       const file = req.file;
-      const fileName = `${Date.now()}-${slugify(
-        req.user.name || req.user.email || "user"
-      )}.${file.originalname.split(".").pop()}`;
 
-      const { data, error } = await supabase.storage
-        .from("avatars")
-        .upload(fileName, file.buffer, {
-          contentType: file.mimetype,
-          upsert: false,
-        });
+      const extension = file.originalname.split(".").pop();
+      const safeName = `${Date.now()}-${slugify(req.user.name || req.user.email || "user")}.${extension}`;
 
-      if (error) throw error;
+      const filePath = `avatars/${req.user.id}/${safeName}`;
 
-      const { data: publicUrlData } = supabase.storage
-        .from("avatars")
-        .getPublicUrl(fileName);
+      const params = {
+        Bucket: BUCKET_NAME,
+        Key: filePath,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        ACL: "public-read",
+      };
 
-      updateData.avatarUrl = publicUrlData.publicUrl;
+      // Upload lên DigitalOcean Spaces
+      await s3.send(new PutObjectCommand(params));
+
+      // Tạo public URL
+      const publicUrl = `${CDN_URL}/${filePath}`;
+
+      updateData.avatarUrl = publicUrl;
     }
 
     const profile = await UserProfile.findOneAndUpdate(
@@ -64,14 +77,14 @@ const updateMyProfile = async (req, res) => {
       { new: true, upsert: true }
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Profile updated successfully",
       data: profile,
     });
   } catch (err) {
     console.error("❌ Error updating profile:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Internal server error",
       error: err.message,
@@ -82,7 +95,10 @@ const updateMyProfile = async (req, res) => {
 
 const getAllProfiles = async (req, res) => {
   try {
-    const profiles = await UserProfile.find().populate('user', 'name email role');
+    const profiles = await UserProfile
+      .find()
+      .populate('user', 'name email role');
+
     res.status(200).json(profiles);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -92,8 +108,12 @@ const getAllProfiles = async (req, res) => {
 
 const getProfileById = async (req, res) => {
   try {
-    const profile = await UserProfile.findById(req.params.id).populate('user', 'name email role');
+    const profile = await UserProfile
+      .findById(req.params.id)
+      .populate('user', 'name email role');
+
     if (!profile) return res.status(404).json({ message: 'Profile not found' });
+
     res.status(200).json(profile);
   } catch (err) {
     res.status(500).json({ error: err.message });
