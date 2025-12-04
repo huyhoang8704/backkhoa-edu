@@ -10,6 +10,9 @@ const connectDB = require('./config/mongoDB');
 const swaggerDocs = require('./config/swagger');
 const authRoutes = require('./routes/authRoute');
 const userProfileRoutes = require('./routes/userProfileRoute');
+const tagRoutes = require('./routes/tagRoute');
+const categoryRoute = require('./routes/categoryRoute');
+const postRoute = require('./routes/postRoute');
 
 const port = process.env.PORT || 3000;
 
@@ -23,6 +26,9 @@ swaggerDocs(app); // Initialize Swagger documentation
 
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', userProfileRoutes);
+app.use('/api/tags', tagRoutes);
+app.use('/api/categories', categoryRoute);
+app.use('/api/posts', postRoute);
 
 
 
